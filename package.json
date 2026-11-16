@@ -2,6 +2,7 @@
   "name": "crack-mcp",
   "version": "0.1.0",
   "description": "Unofficial MCP server for crack.wrtn.ai stories (read, create, edit drafts)",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {
