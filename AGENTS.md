@@ -48,6 +48,26 @@ claude mcp get crack      # Status: ✔ Connected 확인
 
 미리 로그인해 두려면 `npm run login` (백그라운드로 실행하고, 사용자가 창을 닫을 때까지 기다린다).
 
+### 3-3. 스킬 연결 (`/crack`)
+
+`.claude/skills/crack/SKILL.md`가 4단계 작업 순서를 줄여 담은 스킬이다. `/crack <요청>`으로 부르거나, 크랙 스토리 이야기가 나오면 자동으로 켜진다.
+사용자 스킬 폴더에 **링크**한다. 복사하지 않는다 — 복사하면 저장소를 고쳐도 스킬이 옛날 내용으로 남는다.
+
+```powershell
+New-Item -ItemType Junction -Path "$env:USERPROFILE\.claude\skills\crack" -Target "<이 폴더>\.claude\skills\crack"   # Windows
+```
+```bash
+ln -s "<이 폴더>/.claude/skills/crack" ~/.claude/skills/crack   # macOS/Linux
+```
+
+- 스킬 내용을 바꾸면 이 문서의 4단계와 어긋나지 않게 같이 고친다.
+- 확인은 비대화형으로 한다 (Git Bash면 `MSYS_NO_PATHCONV=1`을 붙인다. 안 붙이면 `/crack`이 파일 경로로 바뀐다):
+  ```bash
+  claude -p "/crack 목록" --allowedTools "Skill(crack)"                     # 직접 부르기: 스토리 표가 나와야 함
+  claude -p "크랙에 있는 내 스토리 이름만 알려줘" --allowedTools "Skill(crack)"  # 자동: Skill(crack) 호출이 있어야 함
+  ```
+  `--output-format stream-json --verbose`를 붙이면 어떤 도구가 불렸는지 볼 수 있다.
+
 ### 3-4. 등록 없이 지금 세션에서 도구 호출하기
 
 MCP 클라이언트가 하는 일을 그대로 한다. 서버를 stdio로 띄우고 JSON-RPC 한 줄씩 보낸다.

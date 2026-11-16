@@ -33,6 +33,29 @@ Claude Desktop이라면 `claude_desktop_config.json`에:
 { "mcpServers": { "crack": { "command": "node", "args": ["/절대/경로/crack-mcp/src/index.ts"] } } }
 ```
 
+### 스킬 (`/crack`)
+
+`.claude/skills/crack/`에 Claude Code 스킬이 들어 있습니다. 설치하면 두 가지로 쓸 수 있습니다.
+
+- **직접 부르기:** `/crack 목록`, `/crack 보기 아아`, `/crack 수정 아아 첫 메시지를 …로`, `/crack 새로 만들기 …`, `/crack 제한`
+- **자동:** "크랙에 있는 내 스토리 첫 메시지 뭐였지?"처럼 말하면 Claude가 알아서 스킬을 씁니다.
+
+모든 프로젝트에서 쓰려면 사용자 스킬 폴더에 연결하세요. 복사가 아니라 링크라서, 저장소를 업데이트하면 스킬도 같이 바뀝니다.
+
+```powershell
+# Windows (PowerShell)
+New-Item -ItemType Junction -Path "$env:USERPROFILE\.claude\skills\crack" -Target "<crack-mcp 폴더>\.claude\skills\crack"
+```
+
+```bash
+# macOS / Linux
+ln -s "<crack-mcp 폴더>/.claude/skills/crack" ~/.claude/skills/crack
+```
+
+- 이 저장소 폴더 안에서 Claude Code를 열면 연결하지 않아도 스킬이 잡힙니다.
+- 읽기 도구(목록·보기·제한)는 스킬이 미리 허용해 둡니다. 저장(`save_story_draft`)은 매번 승인을 묻습니다.
+- 처음 `/crack`을 쓸 때 스킬 실행 승인을 한 번 묻습니다. `claude -p` 같은 비대화형 실행에서는 `--allowedTools "Skill(crack)"`을 붙이세요.
+
 ## 로그인
 
 따로 할 일은 없습니다. 처음 도구를 쓸 때 **크롬 창이 크랙 페이지로 뜨면 로그인하고 창을 닫으세요.** 그걸로 끝입니다.
