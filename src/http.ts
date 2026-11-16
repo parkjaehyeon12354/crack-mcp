@@ -1,4 +1,7 @@
 // Remote MCP server for Claude custom connectors (works from the Claude mobile app, no PC needed).
+// 단일 사용자 전용, 다중 사용자 지원 금지 (single user only): one server holds one person's own crack login,
+// deployed by that person. Don't add multi-user support (accounts, per-user tokens, shared hosting): taking
+// other people's tokens would give third parties access to crack accounts, which crack's terms forbid.
 // Run: CRACK_SECRET=<long random> CRACK_PUBLIC_URL=https://<host> node src/http.ts
 //
 // Every route sits under /<CRACK_SECRET>/ — anyone without the secret gets a bare 404.
@@ -7,11 +10,11 @@
 //   /<secret>/token   POST target of the setup page
 // ponytail: secret-in-URL instead of OAuth — Claude custom connectors take either no auth or OAuth, not a header.
 // The path (secret included) lands in Cloud Run request logs, readable by the project's owners only.
-// Fine for one person's connector; add OAuth if it ever serves others.
+// Fine for one person's connector. Serving others would need its own design (OAuth etc.) and crack's permission.
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { buildServer, hooks, loadTokens, saveTokens, tryRefresh, TOKEN_FILE } from "./index.ts";
+import { buildServer, hooks, loadTokens, saveTokens, tryRefresh, maskTokens, TOKEN_FILE } from "./index.ts";
 
 const SECRET = process.env.CRACK_SECRET ?? "";
 const PUBLIC_URL = (process.env.CRACK_PUBLIC_URL ?? "").replace(/\/$/, "");
@@ -111,6 +114,6 @@ createServer(async (req, res) => {
     res.writeHead(404).end();
   } catch (e: any) {
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end(String(e?.message ?? e));
+    res.end(maskTokens(String(e?.message ?? e))); // a JSON.parse error quotes part of the body, which may be a token
   }
 }).listen(Number(process.env.PORT ?? 8080), () => console.log(`crack-mcp http on :${process.env.PORT ?? 8080}, tokens at ${TOKEN_FILE}`));

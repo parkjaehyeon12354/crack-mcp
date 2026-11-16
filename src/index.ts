@@ -3,7 +3,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, chmodSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -22,8 +23,14 @@ export function loadTokens(): Tokens {
 export function saveTokens(t: Tokens) {
   tokens = t;
   mkdirSync(dirname(TOKEN_FILE), { recursive: true });
+  // `mode` only applies when the file is created, so tighten an existing file before new tokens go in.
+  // Best effort: Windows has no POSIX modes and a mounted bucket may refuse chmod.
+  try { chmodSync(TOKEN_FILE, 0o600); } catch {}
   writeFileSync(TOKEN_FILE, JSON.stringify(t), { mode: 0o600 });
 }
+
+// Crack tokens are JWTs ("eyJ…"). Hides any of them, even a cut-off piece, before text goes into an error or log.
+export const maskTokens = (s: string) => s.replace(/eyJ[\w-]*(?:\.[\w-]*){0,2}/g, "[토큰 가림]");
 
 export function jwtExp(t?: string): number {
   if (!t) return 0;
@@ -34,12 +41,32 @@ let tokens = loadTokens();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Keep traffic to crack small (its terms forbid automated access that loads the server). Every crack request
+// waits for pace(): at least MIN_INTERVAL_MS between request starts across this whole process, and at most
+// MAX_REQUESTS_PER_TOOL_CALL requests per tool call. Today a tool call needs at most ~12
+// (save_story_draft: 4 requests, each may refresh the token and retry once after a 401).
+const intervalEnv = Number(process.env.CRACK_MIN_INTERVAL_MS?.trim() || NaN);
+export const MIN_INTERVAL_MS = Number.isFinite(intervalEnv) && intervalEnv >= 0 ? intervalEnv : 500;
+export const MAX_REQUESTS_PER_TOOL_CALL = 20;
+const callBudget = new AsyncLocalStorage<{ used: number }>(); // set per tool call in buildServer()
+let nextSlot = 0;
+async function pace() {
+  const budget = callBudget.getStore();
+  if (budget && ++budget.used > MAX_REQUESTS_PER_TOOL_CALL)
+    throw new Error(`도구 한 번에 크랙 요청이 ${MAX_REQUESTS_PER_TOOL_CALL}회를 넘어서 멈췄어요 (크랙 서버 부하 방지).`);
+  const now = Date.now();
+  const at = Math.max(now, nextSlot); // reserve the slot synchronously so parallel calls queue up
+  nextSlot = at + MIN_INTERVAL_MS;
+  if (at > now) await sleep(at - now);
+}
+
 // Returns false when the refresh token is rejected (→ needs a fresh login).
 // One refresh at a time: two parallel tool calls must not both spend the same refresh token.
 let refreshing: Promise<boolean> | undefined;
 export const tryRefresh = () => (refreshing ??= doRefresh().finally(() => (refreshing = undefined)));
 async function doRefresh(): Promise<boolean> {
   const rt = tokens.refreshToken!;
+  await pace();
   const r = await fetch(`${GW}/auth/v2/token/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Platform: "web", Refresh: rt },
@@ -122,6 +149,7 @@ async function ensureAccess() {
 
 export async function api(method: string, path: string, body?: unknown, retried = false): Promise<any> {
   await ensureAccess();
+  await pace();
   const r = await fetch(`${GW}/crack-api${path}`, {
     method,
     headers: {
@@ -134,7 +162,7 @@ export async function api(method: string, path: string, body?: unknown, retried 
   });
   if (r.status === 401 && !retried) { tokens.accessToken = undefined; return api(method, path, body, true); }
   const j: any = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`${method} ${path} → ${r.status}: ${j.message ?? JSON.stringify(j).slice(0, 300)}`);
+  if (!r.ok) throw new Error(maskTokens(`${method} ${path} → ${r.status}: ${j.message ?? JSON.stringify(j).slice(0, 300)}`));
   return j.data;
 }
 
@@ -278,6 +306,10 @@ const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof 
 
 export function buildServer() {
 const server = new McpServer({ name: "crack", version: "0.1.0" });
+// Every tool call runs with its own request budget (see pace()).
+const register = server.registerTool.bind(server);
+server.registerTool = ((name: string, config: any, cb: (...a: any[]) => any) =>
+  register(name, config, (...a: any[]) => callBudget.run({ used: 0 }, () => cb(...a)))) as typeof server.registerTool;
 
 server.registerTool("list_my_stories", {
   description: "내 크랙 스토리 목록. storyId는 다른 도구에 넘길 ID.",
