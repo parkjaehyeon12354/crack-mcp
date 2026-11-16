@@ -56,6 +56,52 @@ ln -s "<crack-mcp 폴더>/.claude/skills/crack" ~/.claude/skills/crack
 - 읽기 도구(목록·보기·제한)는 스킬이 미리 허용해 둡니다. 저장(`save_story_draft`)은 매번 승인을 묻습니다.
 - 처음 `/crack`을 쓸 때 스킬 실행 승인을 한 번 묻습니다. `claude -p` 같은 비대화형 실행에서는 `--allowedTools "Skill(crack)"`을 붙이세요.
 
+## 휴대폰에서 쓰기 (커스텀 커넥터, PC 불필요)
+
+Claude 커스텀 커넥터로 등록하면 **Claude 휴대폰 앱**에서도 쓸 수 있습니다. 서버는 클라우드에서 돌고, 로그인도 휴대폰 브라우저로 합니다.
+
+> **Cloudflare Workers에는 올릴 수 없습니다.** 크랙이 Workers에서 오는 요청을 봇으로 차단합니다(403 "Attention Required").
+> 일반 클라우드 서버(Google Cloud Run, Azure 등)에서는 동작하는 것을 확인했습니다.
+
+### 1. Google Cloud Run에 올리기 (한 번만)
+
+결제 계정이 연결된 Google Cloud 프로젝트가 필요합니다. 무료 사용량 안에서 돌아갑니다.
+
+```bash
+P=<프로젝트 ID>; R=asia-northeast3; B=$P-crack-mcp
+gcloud storage buckets create gs://$B --location=$R --uniform-bucket-level-access --public-access-prevention
+SA=$(gcloud iam service-accounts list --filter='displayName:Compute Engine default' --format='value(email)')
+gcloud storage buckets add-iam-policy-binding gs://$B --member=serviceAccount:$SA --role=roles/storage.objectUser
+SECRET=$(openssl rand -hex 32)   # 비밀 키 — 커넥터 주소에 들어갑니다
+gcloud run deploy crack-mcp --source . --region $R --allow-unauthenticated \
+  --max-instances 1 --min-instances 0 --memory 512Mi --execution-environment gen2 \
+  --add-volume name=data,type=cloud-storage,bucket=$B --add-volume-mount volume=data,mount-path=/data \
+  --set-env-vars "CRACK_SECRET=$SECRET,CRACK_TOKEN_FILE=/data/tokens.json"
+URL=$(gcloud run services describe crack-mcp --region $R --format='value(status.url)')
+gcloud run services update crack-mcp --region $R --update-env-vars "CRACK_PUBLIC_URL=$URL"
+echo "커넥터 주소: $URL/$SECRET/mcp"
+echo "로그인 페이지: $URL/$SECRET/setup"
+```
+
+- Windows의 Git Bash에서는 `/data`가 Windows 경로로 바뀌어 배포가 실패합니다. PowerShell에서 실행하세요.
+- 토큰은 비공개 버킷의 `tokens.json`에 저장됩니다. 인스턴스가 꺼졌다 켜져도 유지됩니다.
+
+### 2. 휴대폰으로 로그인 (처음 한 번, 그리고 14일 넘게 안 썼을 때)
+
+휴대폰 브라우저로 **로그인 페이지**를 열고, 안내대로 북마크를 하나 만듭니다. 크랙에 로그인한 탭에서 그 북마크를 누르면 "연결 완료"가 뜹니다.
+그 뒤로는 서버가 토큰을 알아서 갱신합니다. 토큰이 끊기면 Claude가 로그인 페이지 주소를 알려 줍니다.
+
+### 3. Claude에 커넥터 추가
+
+claude.ai(휴대폰 브라우저로도 가능) → **설정 → 커넥터 → 커스텀 커넥터 추가** → 이름 `crack`, URL에 **커넥터 주소**를 넣습니다.
+웹에서 추가하면 휴대폰 앱에도 나타납니다.
+
+### 보안
+
+- 모든 주소에 비밀 키가 들어갑니다. 키가 없으면 전부 404입니다. **커넥터 주소와 로그인 페이지 주소는 비밀번호처럼 다루세요.**
+- 키를 바꾸려면 `CRACK_SECRET`을 새 값으로 업데이트하고 커넥터를 다시 등록하면 됩니다.
+- Cloud Run 요청 로그에는 주소(비밀 키 포함)가 남습니다. 프로젝트 소유자만 볼 수 있습니다.
+
 ## 로그인
 
 따로 할 일은 없습니다. 처음 도구를 쓸 때 **크롬 창이 크랙 페이지로 뜨면 로그인하고 창을 닫으세요.** 그걸로 끝입니다.
@@ -113,6 +159,7 @@ ln -s "<crack-mcp 폴더>/.claude/skills/crack" ~/.claude/skills/crack
 ```bash
 npm test                 # 오프라인 자체 검사 (네트워크 안 씀)
 npm run test:live        # 실제 크랙 서버로 검사
+CRACK_MCP_URL=<커넥터 주소> npm run test:http   # 배포한 커넥터를 Claude처럼 HTTPS로 검사
 ```
 
 `test:live`는 두 부분입니다.

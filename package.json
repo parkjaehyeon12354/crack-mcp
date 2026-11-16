@@ -12,7 +12,9 @@
     "start": "node src/index.ts",
     "test": "node src/index.ts --selftest",
     "test:live": "node test/limits.live.ts && node test/tools.live.ts",
-    "login": "node src/index.ts --login"
+    "login": "node src/index.ts --login",
+    "serve": "node src/http.ts",
+    "test:http": "node test/http.live.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

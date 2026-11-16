@@ -6,21 +6,22 @@ import { z } from "zod";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import assert from "node:assert";
 
 const GW = "https://crack-api.wrtn.ai";
 const DIR = join(homedir(), ".crack-mcp");
-const TOKEN_FILE = join(DIR, "tokens.json");
+export const TOKEN_FILE = process.env.CRACK_TOKEN_FILE ?? join(DIR, "tokens.json"); // cloud: a mounted bucket path
 
-type Tokens = { accessToken?: string; refreshToken?: string };
+export type Tokens = { accessToken?: string; refreshToken?: string };
 
-function loadTokens(): Tokens {
+export function loadTokens(): Tokens {
   try { return JSON.parse(readFileSync(TOKEN_FILE, "utf8")); } catch { return {}; }
 }
 
-function saveTokens(t: Tokens) {
-  mkdirSync(DIR, { recursive: true });
+export function saveTokens(t: Tokens) {
+  tokens = t;
+  mkdirSync(dirname(TOKEN_FILE), { recursive: true });
   writeFileSync(TOKEN_FILE, JSON.stringify(t), { mode: 0o600 });
 }
 
@@ -34,7 +35,10 @@ let tokens = loadTokens();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Returns false when the refresh token is rejected (→ needs a fresh login).
-async function tryRefresh(): Promise<boolean> {
+// One refresh at a time: two parallel tool calls must not both spend the same refresh token.
+let refreshing: Promise<boolean> | undefined;
+export const tryRefresh = () => (refreshing ??= doRefresh().finally(() => (refreshing = undefined)));
+async function doRefresh(): Promise<boolean> {
   const rt = tokens.refreshToken!;
   const r = await fetch(`${GW}/auth/v2/token/refresh`, {
     method: "POST",
@@ -47,8 +51,7 @@ async function tryRefresh(): Promise<boolean> {
   const strip = (v?: string) => v?.replace(/^Bearer\s+/i, "");
   const at = strip(j.access_token);
   if (!r.ok || !at) throw new Error(`토큰 갱신 실패 (${r.status})`);
-  tokens = { accessToken: at, refreshToken: strip(j.refresh_token) ?? rt };
-  saveTokens(tokens);
+  saveTokens({ accessToken: at, refreshToken: strip(j.refresh_token) ?? rt });
   return true;
 }
 
@@ -104,14 +107,17 @@ export async function browserLogin(timeoutMs = 10 * 60_000) {
     t = await readProfileTokens();
   }
   if (!t) throw new Error("크랙 로그인 정보를 못 찾았어요. 창에서 로그인한 뒤 창을 닫아야 해요.");
-  tokens = t;
   saveTokens(t);
 }
+
+// How to get fresh tokens when refresh fails. Local: Chrome login. Cloud (src/http.ts) swaps this for
+// "open the setup page on your phone", since a server has no browser.
+export const hooks = { login: browserLogin as () => Promise<void>, loginHelp: "로그인 창이 뜨면 로그인하고 창을 닫아 주세요." };
 
 async function ensureAccess() {
   if (jwtExp(tokens.accessToken) > Date.now() + 60_000) return;
   if (jwtExp(tokens.refreshToken) > Date.now() && (await tryRefresh())) return;
-  await browserLogin();
+  await hooks.login();
 }
 
 export async function api(method: string, path: string, body?: unknown, retried = false): Promise<any> {
@@ -270,6 +276,7 @@ export function checkLimits(b: any): string[] {
 
 const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }] });
 
+export function buildServer() {
 const server = new McpServer({ name: "crack", version: "0.1.0" });
 
 server.registerTool("list_my_stories", {
@@ -343,9 +350,12 @@ server.registerTool("get_limits", {
 }, async () => text(LIMITS));
 
 server.registerTool("login", {
-  description: "크랙 로그인 창을 띄워 토큰을 다시 받는다 (로그인 후 창을 닫으면 완료). 보통은 필요할 때 자동으로 뜨니 직접 부를 일은 거의 없음.",
+  description: "크랙 로그인을 다시 한다. " + hooks.loginHelp + " 보통은 필요할 때 자동으로 안내되니 직접 부를 일은 거의 없음.",
   inputSchema: {},
-}, async () => { await browserLogin(); return text("로그인 완료"); });
+}, async () => { await hooks.login(); return text("로그인 완료"); });
+
+return server;
+}
 
 if (!import.meta.main) {
   // imported (e.g. by test/live.ts): expose functions only, no server
@@ -371,5 +381,5 @@ if (!import.meta.main) {
   assert.deepEqual(checkLimits({ situationImageVersion: "v1", customPrompt: "x".repeat(5001) }).length, 1, "v1 prompt cap");
   console.log("selftest ok");
 } else {
-  await server.connect(new StdioServerTransport());
+  await buildServer().connect(new StdioServerTransport());
 }

@@ -73,6 +73,21 @@ ln -s "<이 폴더>/.claude/skills/crack" ~/.claude/skills/crack   # macOS/Linux
 MCP 클라이언트가 하는 일을 그대로 한다. 서버를 stdio로 띄우고 JSON-RPC 한 줄씩 보낸다.
 `initialize` → `notifications/initialized` → `tools/call`. 예시 구현은 `test/tools.live.ts`의 `rpc`, `call` 함수를 보면 된다.
 
+### 3-5. 휴대폰용 커스텀 커넥터 (`src/http.ts`)
+
+PC 없이 Claude 휴대폰 앱에서 쓰려면 같은 도구를 HTTPS로 연다. 배포 명령은 README "휴대폰에서 쓰기"에 있다.
+
+- 진입점은 `src/http.ts`이고, 도구는 `index.ts`의 `buildServer()`를 그대로 쓴다. 도구를 고치면 둘 다 바뀐다.
+- 모든 경로는 `/<CRACK_SECRET>/` 아래에 있다: `mcp`(커넥터), `setup`(로그인 페이지), `token`(토큰 받기). 그 밖의 주소는 전부 404.
+- 서버에는 브라우저가 없다. 그래서 `hooks.login`이 "로그인 페이지를 열어 달라"는 에러로 바뀐다.
+  로그인 페이지의 북마크가 크랙 탭에서 `refresh_token` 쿠키를 읽어, 주소 `#` 뒤에 붙여 `setup`으로 이동한다.
+  `#` 뒤는 서버로 안 가고, 페이지가 읽은 뒤 바로 지운다. 그다음 `token`으로 POST한다.
+- `token`은 새 토큰으로 크랙 갱신이 성공할 때만 저장한다. 실패하면 기존 토큰을 그대로 둔다.
+- 토큰 갱신은 한 번에 하나만 한다 (`tryRefresh`가 진행 중인 요청을 공유).
+  예전 갱신 토큰은 갱신 후에도 유효하다. 그래서 PC 버전과 클라우드 버전이 따로 갱신해도 서로 안 끊긴다.
+- 확인: `CRACK_MCP_URL=<커넥터 주소> npm run test:http` — 도구 목록, 크랙 도달, 404 잠금, 가짜 토큰 거부를 본다.
+- **Cloudflare Workers에는 올리지 않는다.** 크랙이 403으로 막는다. 헤더를 꾸며서 그 차단을 피하려 하지 않는다 (0단계 규칙 4와 같은 이유).
+
 ---
 
 ## 4단계. 스토리 작업하는 순서
@@ -250,4 +265,7 @@ CRACK_TEST_STORY_ID=<테스트용 스토리> npm run test:live  # 실제 서버.
 | 시작설정 4개 거부, 메시지는 "2개까지" | 메시지는 추가 설정 수 기준. 실제 최대는 3개 | `LIMITS.startingSets = 3` |
 | 목록 limit 50 → 400 | 서버 상한: 목록 30, 임시저장 40 | `LIMITS.api` |
 | 구글 로그인 "브라우저가 안전하지 않음" | 디버깅 포트가 붙은 창에서 로그인함 | 로그인 창은 디버깅 없이, 쿠키는 나중에 화면 없는 크롬으로 읽기 |
+| Workers에서 크랙 API 전부 403 "Attention Required" | 크랙이 Cloudflare Workers 요청을 봇으로 차단 | Cloud Run 등 일반 서버에 배포 (GitHub Actions·Cloud Run에서는 통과 확인) |
+| `gcloud run deploy` 실패: mount_path가 절대 경로가 아님 | Git Bash가 `/data`를 `C:/Program Files/Git/data`로 바꿈. `MSYS_NO_PATHCONV=1`은 gcloud 자체를 깨뜨림 | PowerShell에서 배포 |
+| PowerShell로 쓴 파일 맨 앞에 보이지 않는 문자 | Windows PowerShell 5의 `Out-File -Encoding utf8`은 BOM을 붙임 | Node로 쓰거나 BOM을 지움 |
 | 테스트 하네스가 서버를 못 찾음 (`%EC%BD…`) | `URL.pathname`이 한글 경로를 인코딩함 | `fileURLToPath` 사용 |
