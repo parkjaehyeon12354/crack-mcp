@@ -398,6 +398,8 @@ if (!import.meta.main) {
   // Offline checks: no network.
   const fake = `x.${Buffer.from(JSON.stringify({ exp: 2000000000 })).toString("base64url")}.y`;
   assert(jwtExp(fake) === 2000000000000, "jwtExp");
+  assert.equal(maskTokens("401: Unexpected token in eyJhbGciOi.eyJpZCI6.sig at 3"), "401: Unexpected token in [토큰 가림] at 3", "maskTokens hides a whole JWT");
+  assert.equal(maskTokens("…cut eyJpZCI6IjY1"), "…cut [토큰 가림]", "maskTokens hides a cut-off JWT piece");
   const b = toDraftBody({ _id: "s1", promptTemplate: { template: "custom" }, genre: { _id: "g" }, portraitImage: { origin: "u" }, startingSets: [{ name: "a" }] });
   assert(b.storyId === "s1" && b.promptTemplate === "custom" && b.genreId === "g" && b.portraitImageUrl === "u", "toDraftBody map");
   assert(b.startingSets[0].situationPrompt === "" && Array.isArray(b.startingSets[0].parameters), "startingSets defaults");
