@@ -24,12 +24,16 @@ step("get_limits", JSON.parse(lim.content[0].text).startingSets === 3);
 await client.close();
 
 // Everything outside /<secret>/ must look like nothing is there.
-for (const p of ["/", "/mcp", "/setup", `/${"x".repeat(64)}/mcp`]) {
+const secret = new URL(URL_).pathname.split("/")[1];
+const nearMiss = secret.slice(0, -1) + (secret.endsWith("0") ? "1" : "0"); // same length, one char off
+for (const p of ["/", "/mcp", "/setup", `/${"x".repeat(64)}/mcp`, `/${nearMiss}/mcp`, `/${nearMiss}/setup`]) {
   const s = (await fetch(origin + p)).status;
   step(`비밀 키 없는 주소 ${p.slice(0, 20)} → 404`, s === 404, String(s));
 }
 const setup = await fetch(base + "/setup");
-step("설정 페이지", setup.ok && (await setup.text()).includes("javascript:"));
+const page = setup.ok ? await setup.text() : "";
+step("설정 페이지", page.includes("javascript:"));
+step("북마크는 crack.wrtn.ai 에서만 동작", page.includes("location.hostname!=='crack.wrtn.ai'"));
 const bad = await fetch(base + "/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken: "not-a-token" }) });
 step("가짜 토큰은 거부", bad.status === 400);
 

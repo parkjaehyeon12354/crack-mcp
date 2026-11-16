@@ -5,16 +5,27 @@
 //   /<secret>/mcp     MCP endpoint (Streamable HTTP, stateless) — the URL you paste into Claude
 //   /<secret>/setup   phone login page: a bookmarklet that hands the crack refresh token to this server
 //   /<secret>/token   POST target of the setup page
-// ponytail: secret-in-URL instead of OAuth. Fine for one person's connector; add OAuth if it ever serves others.
+// ponytail: secret-in-URL instead of OAuth — Claude custom connectors take either no auth or OAuth, not a header.
+// The path (secret included) lands in Cloud Run request logs, readable by the project's owners only.
+// Fine for one person's connector; add OAuth if it ever serves others.
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildServer, hooks, loadTokens, saveTokens, tryRefresh, TOKEN_FILE } from "./index.ts";
 
 const SECRET = process.env.CRACK_SECRET ?? "";
 const PUBLIC_URL = (process.env.CRACK_PUBLIC_URL ?? "").replace(/\/$/, "");
 if (SECRET.length < 32) throw new Error("CRACK_SECRET 은 32자 이상이어야 해요 (예: openssl rand -hex 32).");
-const BASE = `/${SECRET}`;
-const SETUP_URL = `${PUBLIC_URL}${BASE}/setup`;
+const SETUP_URL = `${PUBLIC_URL}/${SECRET}/setup`;
+
+// "/<secret>/<route>" → "<route>", secret compared in constant time; anything else → undefined (404).
+export function route(path: string, secret = SECRET): string | undefined {
+  const i = path.indexOf("/", 1);
+  if (i < 0) return undefined;
+  const got = Buffer.from(path.slice(1, i));
+  const want = Buffer.from(secret);
+  return got.length === want.length && timingSafeEqual(got, want) ? path.slice(i + 1) : undefined;
+}
 
 // A server has no browser: when tokens run out, tell the user (through Claude) where to log in again.
 hooks.loginHelp = `토큰이 만료되면 휴대폰 브라우저에서 설정 페이지(${SETUP_URL})를 열어 안내대로 하면 돼요.`;
@@ -31,7 +42,8 @@ const readBody = (req: import("node:http").IncomingMessage) =>
 
 const bookmarklet = () =>
   `javascript:(()=>{const m=document.cookie.match(/(?:^|; )refresh_token=([^;]+)/);` +
-  `if(!m||!/wrtn\\.ai$/.test(location.hostname))return alert('crack.wrtn.ai 에 로그인한 상태로, 크랙 페이지에서 눌러 주세요.');` +
+  // Exact host: the bookmarklet carries the secret, so it must never run on any page but crack itself.
+  `if(location.hostname!=='crack.wrtn.ai'||!m)return alert('crack.wrtn.ai 에 로그인한 상태로, 크랙 페이지에서 눌러 주세요.');` +
   `location.href=${JSON.stringify(SETUP_URL)}+'#'+m[1]})()`;
 
 const setupPage = () => `<!doctype html><html lang="ko"><head><meta charset="utf-8">
@@ -67,9 +79,9 @@ if (t) {
 </script></body></html>`;
 
 createServer(async (req, res) => {
-  const path = new URL(req.url ?? "/", "http://x").pathname;
+  const r = route(new URL(req.url ?? "/", "http://x").pathname);
   try {
-    if (path === `${BASE}/mcp`) {
+    if (r === "mcp") {
       // Stateless: a fresh server + transport per request, so no session state to lose between Cloud Run instances.
       const body = req.method === "POST" ? JSON.parse((await readBody(req)) || "null") : undefined;
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
@@ -79,11 +91,11 @@ createServer(async (req, res) => {
       await transport.handleRequest(req, res, body);
       return;
     }
-    if (path === `${BASE}/setup` && req.method === "GET") {
+    if (r === "setup" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
       return res.end(setupPage());
     }
-    if (path === `${BASE}/token` && req.method === "POST") {
+    if (r === "token" && req.method === "POST") {
       const { refreshToken } = JSON.parse(await readBody(req));
       if (typeof refreshToken !== "string" || refreshToken.split(".").length !== 3) {
         res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
