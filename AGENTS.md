@@ -61,6 +61,8 @@ ln -s "<이 폴더>/.claude/skills/crack" ~/.claude/skills/crack   # macOS/Linux
 ```
 
 - 스킬 내용을 바꾸면 이 문서의 4단계와 어긋나지 않게 같이 고친다.
+- 스킬은 `~/.claude/crack-skill.local.md`가 있으면 읽고 따른다 (개인 확장, 저장소 밖). 개인 에이전트 이름·경로 같은 사용자 개인 설정은
+  **이 저장소에 쓰지 않는다** — 저장소는 공개다. 개인 확장이 무엇을 맡기든 crack MCP 읽기·저장은 메인 Claude가 한다.
 - 확인은 비대화형으로 한다 (Git Bash면 `MSYS_NO_PATHCONV=1`을 붙인다. 안 붙이면 `/crack`이 파일 경로로 바뀐다):
   ```bash
   claude -p "/crack 목록" --allowedTools "Skill(crack)"                     # 직접 부르기: 스토리 표가 나와야 함
@@ -145,6 +147,9 @@ PC 없이 Claude 휴대폰 앱에서 쓰려면 같은 도구를 HTTPS로 연다.
   }]
 }
 ```
+
+글자 수 세는 법 (서버 검사 API로 확인): **문자(코드 포인트) 수.** 공백·줄바꿈 1자, `\r\n` 2자, 이모지 1자.
+사이트 입력칸은 이모지를 2자(UTF-16)로 세서 더 엄격하다. `checkLimits`는 입력칸 기준(`.length`)으로 검사한다.
 
 스탯 레벨 구간 규칙 (서버가 검사함):
 - 첫 레벨의 `levelMinValue` = 스탯 `min`
