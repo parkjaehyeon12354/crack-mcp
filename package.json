@@ -1,0 +1,23 @@
+{
+  "name": "crack-mcp",
+  "version": "0.1.0",
+  "description": "Unofficial MCP server for crack.wrtn.ai stories (read, create, edit drafts)",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "start": "node src/index.ts",
+    "test": "node src/index.ts --selftest",
+    "test:live": "node test/limits.live.ts && node test/tools.live.ts",
+    "login": "node src/index.ts --login"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2"
+  }
+}
